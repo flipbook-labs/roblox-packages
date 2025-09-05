@@ -11,6 +11,9 @@ pub enum Command {
         /// Destination where Roblox packages will be copied to
         #[clap(value_parser)]
         dest: PathBuf,
+
+        #[clap(long, short, value_parser, num_args = 1.., value_delimiter = ' ')]
+        packages: Option<Vec<String>>,
     },
 }
 
@@ -25,8 +28,8 @@ pub struct CLI {
 impl CLI {
     pub fn run(&self) -> Result<()> {
         match &self.command {
-            Command::Install { dest } => {
-                install_roblox_packages(dest);
+            Command::Install { dest, packages } => {
+                install_roblox_packages(dest, packages);
             }
         }
 
