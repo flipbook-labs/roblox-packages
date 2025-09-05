@@ -1,0 +1,17 @@
+[package]
+name = "roblox-packages"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "roblox_packages"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.99"
+clap = { version = "4.5.47", features = ["derive"] }
+console = "0.16.0"
+copy_dir = "0.1.3"
+env_logger = { version = "0.11.8", default-features = false }
+log = "0.4.28"
+roblox_install = "1.0.0"
