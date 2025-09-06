@@ -106,8 +106,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: ${{ needs.init.outputs.version }}
-          tag_name: v${{ needs.init.outputs.version }}
-          fail_on_unmatched_files: true
           files: ./releases/*.zip
-          draft: true
