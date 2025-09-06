@@ -62,7 +62,7 @@ jobs:
             artifact-name: roblox-packages-${{ needs.init.outputs.version }}-macos-aarch64
             cargo-target: aarch64-apple-darwin
 
-    name: Build - ${{ matrix.name }}
+    name: build (${{ matrix.name }})
     runs-on: ${{ matrix.runner-os }}
     steps:
       - uses: actions/checkout@v4

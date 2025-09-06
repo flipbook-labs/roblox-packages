@@ -55,7 +55,7 @@ jobs:
             runner-os: macos-15
             cargo-target: aarch64-apple-darwin
 
-    name: test - ${{ matrix.name }}
+    name: test (${{ matrix.name }})
     runs-on: ${{ matrix.runner-os }}
     steps:
       - uses: actions/checkout@v4
