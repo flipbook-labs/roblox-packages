@@ -5,7 +5,7 @@
 # This script is used to zip up the built binary for release,
 # and is used in the GitHub workflow to create a release artifact
 
-BIN_NAME="lune"
+BIN_NAME="roblox-packages"
 BIN_EXT=""
 CWD="$PWD"
 
