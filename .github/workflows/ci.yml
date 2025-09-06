@@ -26,7 +26,7 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
-  build:
+  test:
     strategy:
       fail-fast: false
       matrix:
@@ -55,7 +55,7 @@ jobs:
             runner-os: macos-15
             cargo-target: aarch64-apple-darwin
 
-    name: Build - ${{ matrix.name }}
+    name: test - ${{ matrix.name }}
     runs-on: ${{ matrix.runner-os }}
     steps:
       - uses: actions/checkout@v4
