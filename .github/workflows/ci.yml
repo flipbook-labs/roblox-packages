@@ -83,11 +83,12 @@ jobs:
           --locked --all-features \
           --target ${{ matrix.cargo-target }}
 
-      - name: Test
-        run: |
-          cargo nextest run --no-fail-fast \
-          --locked --all-features \
-          --target ${{ matrix.cargo-target }}
+      # TODO: Uncomment when we actually have tests
+      # - name: Test
+      #   run: |
+      #     cargo nextest run --no-fail-fast \
+      #     --locked --all-features \
+      #     --target ${{ matrix.cargo-target }}
 
   smoketest:
     runs-on: macos-latest
