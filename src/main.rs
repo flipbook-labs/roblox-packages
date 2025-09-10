@@ -5,7 +5,8 @@ use std::io::Write;
 
 use roblox_packages::CLI;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // TODO: [x] P0: Use Lune's rbx crate to find the Roblox Studio install
     // TODO: [x] P0: Extract LuaPackages
     // TODO: [ ] P0: Patch React, Roact, and RoactCompat
@@ -27,7 +28,7 @@ fn main() {
         })
         .init();
 
-    let exit_code = match CLI::parse().run() {
+    let exit_code = match CLI::parse().run().await {
         Ok(_) => 0,
         Err(err) => {
             error!("{:#}", err);
