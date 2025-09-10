@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  pull_request:
+  release:
+    types: [published]
+  push:
+    branches:
+      - main
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  init:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from manifest
+        id: get_version
+        run: |
+          PACKAGE_VERSION=$(cargo read-manifest | jq -r .version)
+          echo "value=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
+
+  build:
+    needs: ["init"]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x86_64
+            runner-os: windows-2022
+            artifact-name: roblox-packages-${{ needs.init.outputs.version }}-windows-x86_64
+            cargo-target: x86_64-pc-windows-msvc
+
+          - name: Windows aarch64
+            runner-os: windows-11-arm
+            artifact-name: roblox-packages-${{ needs.init.outputs.version }}-windows-aarch64
+            cargo-target: aarch64-pc-windows-msvc
+
+          - name: Linux x86_64
+            runner-os: ubuntu-22.04
+            artifact-name: roblox-packages-${{ needs.init.outputs.version }}-linux-x86_64
+            cargo-target: x86_64-unknown-linux-gnu
+
+          - name: Linux aarch64
+            runner-os: ubuntu-22.04-arm
+            artifact-name: roblox-packages-${{ needs.init.outputs.version }}-linux-aarch64
+            cargo-target: aarch64-unknown-linux-gnu
+
+          - name: macOS x86_64
+            runner-os: macos-15
+            artifact-name: roblox-packages-${{ needs.init.outputs.version }}-macos-x86_64
+            cargo-target: x86_64-apple-darwin
+
+          - name: macOS aarch64
+            runner-os: macos-15
+            artifact-name: roblox-packages-${{ needs.init.outputs.version }}-macos-aarch64
+            cargo-target: aarch64-apple-darwin
+
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.runner-os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.cargo-target }}
+
+      - name: Build binary
+        run: |
+          cargo build \
+          --locked --all-features \
+          --release --target ${{ matrix.cargo-target }}
+
+      - name: Create release archive
+        run: ./scripts/zip-release.sh ${{ matrix.cargo-target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: release.zip
+
+  release-github:
+    name: Release (GitHub)
+    runs-on: ubuntu-latest
+    needs: ["init", "build"]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: ./releases
+
+      - name: Unpack releases
+        run: ./scripts/unpack-releases.sh "./releases"
+
+      - uses: softprops/action-gh-release@v2
+        if: github.event.release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: ./releases/*.zip
