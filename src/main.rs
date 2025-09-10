@@ -7,11 +7,6 @@ use roblox_packages::CLI;
 
 #[tokio::main]
 async fn main() {
-    // TODO: [x] P0: Use Lune's rbx crate to find the Roblox Studio install
-    // TODO: [x] P0: Extract LuaPackages
-    // TODO: [ ] P0: Patch React, Roact, and RoactCompat
-    // TODO: [ ] P1: Choose which packages to install, prune the rest from the index
-
     env_logger::Builder::from_env("LOG")
         .filter_level(LevelFilter::Info)
         .format(move |buf, record| {
