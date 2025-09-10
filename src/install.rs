@@ -6,7 +6,7 @@ use std::{env::current_dir, fs::remove_dir_all};
 
 const ROBLOX_PACKAGES_PATH: &str = "ExtraContent/LuaPackages/Packages";
 
-pub fn install_roblox_packages(dest: &PathBuf) {
+pub fn install_roblox_packages(dest: &PathBuf, packages: &Option<Vec<String>>) {
     let roblox_studio_content = RobloxStudio::locate()
         .map(|rs| rs.content_path().display().to_string())
         .unwrap();
