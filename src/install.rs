@@ -1,7 +1,7 @@
 use log::{debug, info};
+use std::env::current_dir;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::{env::current_dir, fs::remove_dir_all};
 
 use crate::roblox::{
     fetch_roblox_deploy_history, fetch_roblox_packages, get_roblox_version_by_git_hash,
@@ -35,6 +35,7 @@ pub async fn install_roblox_packages(
 
     debug!("extracting packages to {:?}", &dest_path);
 
+    // The archive uses Windows-style paths so we need to manually normalize them
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).unwrap();
         let outpath = {
@@ -57,22 +58,10 @@ pub async fn install_roblox_packages(
     }
 
     info!(
-        "successfully extracted packages from Roblox version {} to {}",
+        "successfully installed packages from Roblox version {} to {}",
         roblox_version.git_hash,
         dest_path.display()
     );
-
-    // if roblox_studio_packages_path.exists() {
-    //     if dest.exists() {
-    //         info!("removing existing destination {:?}...", dest_path);
-    //         remove_dir_all(&dest_path).unwrap();
-    //     }
-
-    //     info!("copying packages from {:?} ", roblox_studio_packages_path);
-    //     copy_dir(roblox_studio_packages_path, &dest_path).unwrap();
-
-    //     info!("successfully installed Roblox packages to {:?}", dest_path);
-    // }
 
     Ok(())
 }
