@@ -90,20 +90,7 @@ jobs:
       #     --locked --all-features \
       #     --target ${{ matrix.cargo-target }}
 
-  smoketest:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-          targets: aarch64-apple-darwin
-
-      - uses: DervexDev/setup-roblox-studio@v1.0.1
-
-      - name: Install Roblox packages
-        run: cargo run -- install RobloxPackages
-
-      - name: Verify that the packages exist
-        run: find RobloxPackages -name Foundation.lua
+      - name: Smoketest
+        run: |
+          cargo run -- install RobloxPackages
+          find RobloxPackages -name Foundation.lua
