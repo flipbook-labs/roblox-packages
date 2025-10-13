@@ -7,9 +7,12 @@ use crate::roblox::{
     fetch_roblox_deploy_history, fetch_roblox_packages, get_roblox_version_by_git_hash,
 };
 
+use crate::rotriever::prune_unused_dependencies;
+
 pub async fn install_roblox_packages(
     dest: &PathBuf,
     version: &Option<String>,
+    dependencies: &Option<Vec<String>>,
 ) -> Result<(), reqwest::Error> {
     let version_history = fetch_roblox_deploy_history().await?;
 
@@ -55,6 +58,10 @@ pub async fn install_roblox_packages(
             let mut outfile = fs::File::create(&outpath).unwrap();
             std::io::copy(&mut file, &mut outfile).unwrap();
         }
+    }
+
+    if let Some(dependencies) = dependencies {
+        prune_unused_dependencies(dependencies, &dest_path);
     }
 
     info!(

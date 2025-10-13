@@ -15,6 +15,11 @@ pub enum Command {
         /// The Roblox version hash to download packages from
         #[arg(short, long)]
         version: Option<String>,
+
+        /// Optional list of package names to install (e.g. "Foundation",
+        /// "Signals", "SignalsReact")
+        #[arg(short, long)]
+        dependencies: Option<Vec<String>>,
     },
 
     /// Lists the most recent versions of Roblox
@@ -36,8 +41,12 @@ pub struct CLI {
 impl CLI {
     pub async fn run(&self) -> Result<(), reqwest::Error> {
         match &self.command {
-            Command::Install { dest, version } => {
-                install_roblox_packages(dest, version).await?;
+            Command::Install {
+                dest,
+                version,
+                dependencies,
+            } => {
+                install_roblox_packages(dest, version, dependencies).await?;
             }
             Command::List { limit } => list_roblox_versions(limit).await?,
         }
