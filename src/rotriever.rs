@@ -1,16 +1,14 @@
+use glob::glob;
+use log::debug;
+use serde::Deserialize;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-use glob::glob;
-use log::{debug, info};
-use serde::Deserialize;
-
 // Collection of functions for working with Rotriever's package index
 
-// Name of the lockfile included in each Rotriever package
-const LOCKFILE_NAME: &str = "rotriever.lock";
+const ROTRIEVER_LOCKFILE_NAME: &str = "rotriever.lock";
 
 #[derive(Deserialize, Debug, Clone)]
 struct RotrieverLockfilePackage {
@@ -94,18 +92,14 @@ fn get_package_from_dependency_string(
 }
 
 fn get_packages_to_keep(package_names: &Vec<String>, dest_path: &Path) -> Vec<PathBuf> {
-    let lockfile_content =
-        fs::read_to_string(dest_path.join(LOCKFILE_NAME)).expect("Failed to read rotriever.lock");
+    let lockfile_content = fs::read_to_string(dest_path.join(ROTRIEVER_LOCKFILE_NAME))
+        .expect("Failed to read rotriever.lock");
     let rotriever_lockfile: RotrieverLockfile =
         toml::from_str(&lockfile_content).expect("Failed to parse rotriever.lock as TOML");
 
     let rotriever_index_path = dest_path.join("Packages/_Index");
 
     let mut packages_to_keep: Vec<PathBuf> = vec![];
-
-    // The goal is to know which folders to keep and which ones to prune
-
-    // TODO: Don't add duplicates
 
     fn process(
         package: &RotrieverLockfilePackage,
@@ -119,11 +113,11 @@ fn get_packages_to_keep(package_names: &Vec<String>, dest_path: &Path) -> Vec<Pa
             get_package_path_from_index(&package.name, &package.version, &rotriever_index_path)
         {
             if packages_to_keep.contains(&root_dependency_path) {
-                info!("already processed {}, skipping", package.name);
+                debug!("already processed {}, skipping", package.name);
                 return;
             }
 
-            info!(
+            debug!(
                 "found source for {} at {}",
                 package.name,
                 root_dependency_path.display()
@@ -147,7 +141,7 @@ fn get_packages_to_keep(package_names: &Vec<String>, dest_path: &Path) -> Vec<Pa
 
     for package_name in package_names {
         if let Some(package) = get_package(package_name, None, &rotriever_lockfile) {
-            info!("processing top-level package: {}", package.name);
+            debug!("processing top-level package: {}", package.name);
             process(
                 &package,
                 &rotriever_lockfile,
@@ -161,7 +155,6 @@ fn get_packages_to_keep(package_names: &Vec<String>, dest_path: &Path) -> Vec<Pa
 }
 
 pub fn prune_unused_dependencies(package_names: &Vec<String>, dest_path: &Path) {
-    info!("root packages to keep: {:?}", package_names);
     let packages_to_keep = get_packages_to_keep(package_names, dest_path);
 
     debug!("packages to keep: {:?}", packages_to_keep);
@@ -189,14 +182,14 @@ pub fn prune_unused_dependencies(package_names: &Vec<String>, dest_path: &Path) 
 
         for package_name_to_keep in package_names {
             if entry.file_name().to_string_lossy() == format!("{}.lua", package_name_to_keep) {
-                info!("keeping {}", entry.path().display());
+                debug!("keeping {}", entry.path().display());
                 should_remove = false;
                 continue;
             }
         }
 
         if should_remove {
-            info!("removing unused package: {}", entry.path().display());
+            debug!("removing unused linker module: {}", entry.path().display());
             if entry.path().is_dir() {
                 fs::remove_dir_all(entry.path()).expect("Failed to remove directory");
             } else {
@@ -222,14 +215,14 @@ pub fn prune_unused_dependencies(package_names: &Vec<String>, dest_path: &Path) 
 
         for package_path_to_keep in &packages_to_keep {
             if entry.path() == *package_path_to_keep {
-                info!("keeping {}", entry.path().display());
+                debug!("keeping {}", entry.path().display());
                 should_remove = false;
                 continue;
             }
         }
 
         if should_remove {
-            info!("removing unused package index: {}", entry.path().display());
+            debug!("removing unused package: {}", entry.path().display());
             if entry.path().is_dir() {
                 fs::remove_dir_all(entry.path()).expect("Failed to remove directory");
             } else {
