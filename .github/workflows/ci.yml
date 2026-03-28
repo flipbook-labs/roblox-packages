@@ -30,6 +30,21 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
 
+  luau-analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: CompeyDev/setup-rokit@v0.1.2
+        with:
+          version: v1.2.0
+
+      - name: Setup Lute typedefs
+        run: lute setup
+
+      - name: Analyze
+        run: lute run analyze
+
   test:
     strategy:
       fail-fast: false
