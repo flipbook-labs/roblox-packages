@@ -50,7 +50,7 @@ pub async fn fetch_roblox_deploy_history() -> Result<Vec<RobloxVersion>, reqwest
 }
 
 pub async fn fetch_current_studio_version_id() -> Result<String, anyhow::Error> {
-    let res = reqwest::get("https://setup.rbxcdn.com/versionQTStudio").await?;
+    let res = reqwest::get("https://setup.rbxcdn.com/mac/versionStudio").await?;
     let body = res.error_for_status()?.text().await?;
     let trimmed = body.trim();
 
