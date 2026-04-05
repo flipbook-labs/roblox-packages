@@ -2,10 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::{
-    install::install_roblox_packages,
-    list::{list_current_roblox_version, list_historic_roblox_versions},
-};
+use crate::{install::install_roblox_packages, list::list_roblox_versions};
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
@@ -31,9 +28,6 @@ pub enum Command {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
-
-    /// Prints the most recent Roblox version hash accepted by --version
-    CurrentVersion,
 }
 
 #[derive(Parser, Debug)]
@@ -45,7 +39,7 @@ pub struct CLI {
 }
 
 impl CLI {
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run(&self) -> Result<(), reqwest::Error> {
         match &self.command {
             Command::Install {
                 dest,
@@ -54,8 +48,7 @@ impl CLI {
             } => {
                 install_roblox_packages(dest, version, dependencies).await?;
             }
-            Command::List { limit } => list_historic_roblox_versions(limit).await?,
-            Command::CurrentVersion => list_current_roblox_version().await?,
+            Command::List { limit } => list_roblox_versions(limit).await?,
         }
 
         Ok(())

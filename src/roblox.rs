@@ -1,4 +1,3 @@
-use anyhow::{Context, anyhow};
 use log::debug;
 use regex::Regex;
 use std::io::Cursor;
@@ -25,17 +24,9 @@ pub async fn fetch_roblox_deploy_history() -> Result<Vec<RobloxVersion>, reqwest
         reqwest::StatusCode::OK => {
             let content = res.text().await?;
 
-            for (_, [target, version_id, timestamp, git_hash]) in
+            for (_, [_target, version_id, timestamp, git_hash]) in
                 re.captures_iter(&content).map(|c| c.extract())
             {
-                if target != "Studio64" {
-                    continue;
-                }
-
-                if version_id == "hidden" {
-                    continue;
-                }
-
                 history.push(RobloxVersion {
                     version_id: version_id.to_string(),
                     git_hash: git_hash.to_string(),
@@ -49,49 +40,32 @@ pub async fn fetch_roblox_deploy_history() -> Result<Vec<RobloxVersion>, reqwest
     Ok(history)
 }
 
-pub async fn fetch_current_studio_version_id() -> Result<String, anyhow::Error> {
-    let res = reqwest::get("https://setup.rbxcdn.com/versionQTStudio").await?;
-    let body = res.error_for_status()?.text().await?;
-    let trimmed = body.trim();
-
-    if let Some(version_id) = trimmed.strip_prefix("version-") {
-        Ok(version_id.to_string())
-    } else {
-        Err(anyhow!(
-            "unexpected response from versionQTStudio endpoint: {}",
-            trimmed
-        ))
-    }
-}
-
 pub async fn fetch_roblox_packages(
-    version_id: &str,
-) -> Result<ZipArchive<Cursor<Vec<u8>>>, anyhow::Error> {
-    debug!("downloading package archive for {}", version_id);
+    version: &RobloxVersion,
+) -> Result<ZipArchive<Cursor<Vec<u8>>>, reqwest::Error> {
+    debug!("downloading package archive for {}", version.version_id);
 
     let res = reqwest::get(format!(
         "https://setup.rbxcdn.com/version-{}-extracontent-luapackages.zip",
-        version_id
+        version.version_id
     ))
     .await?;
 
-    let body = res.error_for_status()?.bytes().await?;
+    let body = res.bytes().await?;
     let cursor = Cursor::new(body.to_vec());
-    let archive =
-        ZipArchive::new(cursor).context("downloaded package archive is not a valid zip archive")?;
+    let archive = ZipArchive::new(cursor).unwrap();
 
     Ok(archive)
 }
 
 pub fn get_roblox_version_by_git_hash<'a>(
     git_hash: &str,
-    version_history: &'a [RobloxVersion],
+    version_history: &'a Vec<RobloxVersion>,
 ) -> Option<&'a RobloxVersion> {
     for version in version_history.iter().rev() {
         if version.git_hash == git_hash {
             return Some(version);
         }
     }
-
-    None
+    return None;
 }
