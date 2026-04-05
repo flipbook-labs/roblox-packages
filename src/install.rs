@@ -3,10 +3,7 @@ use std::env::current_dir;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::roblox::{
-    fetch_current_studio_version_id, fetch_roblox_deploy_history, fetch_roblox_packages,
-    get_roblox_version_by_git_hash,
-};
+use crate::roblox::{RobloxVersion, fetch_roblox_deploy_history, fetch_roblox_packages};
 
 use crate::rotriever::prune_unused_dependencies;
 
@@ -15,29 +12,31 @@ pub async fn install_roblox_packages(
     version: &Option<String>,
     dependencies: &Option<Vec<String>>,
 ) -> Result<(), anyhow::Error> {
-    let hash = if let Some(version) = version {
+    let version_history = fetch_roblox_deploy_history().await?;
+
+    let roblox_version: &RobloxVersion = if let Some(version) = version {
         debug!("looking up Roblox version {}", version);
 
-        version.to_string()
+        version_history
+            .iter()
+            .find(|v: &&RobloxVersion| v.version_id.starts_with(version))
+            .expect(&format!(
+                "could not find Roblox version {} in history",
+                version
+            ))
     } else {
         debug!("no version specified, using most recent");
-
-        fetch_current_studio_version_id().await?
+        version_history
+            .last()
+            .expect("could not get a most recent version")
     };
 
-    let version_id = if hash.contains('.') {
-        let version_history = fetch_roblox_deploy_history().await?;
-        let roblox_version = get_roblox_version_by_git_hash(&hash, &version_history)
-            .expect("Roblox version not found");
+    info!(
+        "downloading packages for Roblox version {}",
+        roblox_version.version_id
+    );
 
-        roblox_version.version_id.to_string()
-    } else {
-        hash.to_string()
-    };
-
-    info!("downloading packages for Roblox version {}", hash);
-
-    let mut archive = fetch_roblox_packages(&version_id).await?;
+    let mut archive = fetch_roblox_packages(&roblox_version).await?;
 
     let cwd = current_dir().unwrap();
     let dest_path = cwd.join(&dest);
@@ -72,7 +71,7 @@ pub async fn install_roblox_packages(
 
     info!(
         "successfully installed packages from Roblox version {} to {}",
-        hash,
+        roblox_version.version_id,
         dest_path.display()
     );
 

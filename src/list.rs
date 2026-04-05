@@ -1,9 +1,8 @@
-use anyhow::Result;
 use std::collections::HashSet;
 
-use crate::roblox::{fetch_current_studio_version_id, fetch_roblox_deploy_history};
+use crate::roblox::fetch_roblox_deploy_history;
 
-pub async fn list_historic_roblox_versions(limit: &usize) -> Result<()> {
+pub async fn list_roblox_versions(limit: &usize) -> Result<(), anyhow::Error> {
     let version_history = fetch_roblox_deploy_history().await?;
     let mut seen_hashes = HashSet::new();
     let mut deduped_versions = Vec::new();
@@ -22,18 +21,10 @@ pub async fn list_historic_roblox_versions(limit: &usize) -> Result<()> {
 
     for roblox_version in deduped_versions.into_iter().rev() {
         println!(
-            "{} ({}) - {}",
-            roblox_version.git_hash, roblox_version.version_id, roblox_version.timestamp
+            "{} ({})",
+            roblox_version.version_id, roblox_version.git_hash
         )
     }
-
-    Ok(())
-}
-
-pub async fn list_current_roblox_version() -> Result<()> {
-    let version = fetch_current_studio_version_id().await?;
-
-    println!("{}", version);
 
     Ok(())
 }
