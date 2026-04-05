@@ -1,10 +1,9 @@
 use log::debug;
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::Cursor;
 use zip::ZipArchive;
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug)]
 pub struct RobloxVersion {
     pub version_id: String,
     pub git_hash: String,
