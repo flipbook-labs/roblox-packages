@@ -39,7 +39,7 @@ pub struct CLI {
 }
 
 impl CLI {
-    pub async fn run(&self) -> Result<(), reqwest::Error> {
+    pub async fn run(&self) -> Result<(), anyhow::Error> {
         match &self.command {
             Command::Install {
                 dest,

@@ -1,48 +1,47 @@
 use log::debug;
-use regex::Regex;
+use serde::Deserialize;
+use std::collections::HashMap;
 use std::io::Cursor;
 use zip::ZipArchive;
 
-#[derive(Debug)]
+#[derive(Deserialize, Debug)]
 pub struct RobloxVersion {
     pub version_id: String,
     pub git_hash: String,
-    pub timestamp: String,
 }
 
-pub async fn fetch_roblox_deploy_history() -> Result<Vec<RobloxVersion>, reqwest::Error> {
-    // New Studio64 version-ffd2994ae3bd41ab at 9/9/2025 4:21:09 PM, file version: 0, 690, 0, 6900721, git hash: 0.690.0.6900721 ...
-    let re = Regex::new(
-        r#"New (?P<target>\w+) version-(?P<version_id>[\w\d]+) at (?P<timestamp>.+), file version: .+, git hash: (?P<git_hash>[\d\.]+)"#
-    ).unwrap();
-
+pub async fn fetch_roblox_deploy_history() -> Result<Vec<RobloxVersion>, anyhow::Error> {
     let mut history = vec![];
 
-    let res = reqwest::get("https://setup.rbxcdn.com/DeployHistory.txt").await?;
+    let res = reqwest::get("https://raw.githubusercontent.com/MaximumADHD/Roblox-Client-Tracker/refs/heads/roblox/version-history.json").await?;
 
     match res.status() {
         reqwest::StatusCode::OK => {
-            let content = res.text().await?;
+            let version_history = res.json::<HashMap<String, String>>().await?;
 
-            for (_, [_target, version_id, timestamp, git_hash]) in
-                re.captures_iter(&content).map(|c| c.extract())
-            {
+            for (version_id, version_hash) in version_history {
+                let git_hash = version_hash
+                    .strip_prefix("version-")
+                    .unwrap_or(&version_hash)
+                    .to_string();
+
                 history.push(RobloxVersion {
-                    version_id: version_id.to_string(),
-                    git_hash: git_hash.to_string(),
-                    timestamp: timestamp.to_string(),
-                })
+                    version_id,
+                    git_hash,
+                });
             }
         }
         _ => {}
     }
+
+    history.sort_by(|a, b| a.version_id.cmp(&b.version_id));
 
     Ok(history)
 }
 
 pub async fn fetch_roblox_packages(
     version: &RobloxVersion,
-) -> Result<ZipArchive<Cursor<Vec<u8>>>, reqwest::Error> {
+) -> Result<ZipArchive<Cursor<Vec<u8>>>, anyhow::Error> {
     debug!("downloading package archive for {}", version.version_id);
 
     let res = reqwest::get(format!(

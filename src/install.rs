@@ -13,7 +13,7 @@ pub async fn install_roblox_packages(
     dest: &PathBuf,
     version: &Option<String>,
     dependencies: &Option<Vec<String>>,
-) -> Result<(), reqwest::Error> {
+) -> Result<(), anyhow::Error> {
     let version_history = fetch_roblox_deploy_history().await?;
 
     let roblox_version = if let Some(version) = version {
