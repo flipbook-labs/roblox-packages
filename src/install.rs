@@ -3,9 +3,7 @@ use std::env::current_dir;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::roblox::{
-    fetch_roblox_deploy_history, fetch_roblox_packages, get_roblox_version_by_git_hash,
-};
+use crate::roblox::{RobloxVersion, fetch_roblox_deploy_history, fetch_roblox_packages};
 
 use crate::rotriever::prune_unused_dependencies;
 
@@ -16,9 +14,16 @@ pub async fn install_roblox_packages(
 ) -> Result<(), anyhow::Error> {
     let version_history = fetch_roblox_deploy_history().await?;
 
-    let roblox_version = if let Some(version) = version {
+    let roblox_version: &RobloxVersion = if let Some(version) = version {
         debug!("looking up Roblox version {}", version);
-        get_roblox_version_by_git_hash(version, &version_history).expect("Roblox version not found")
+
+        version_history
+            .iter()
+            .find(|v: &&RobloxVersion| v.version_id.starts_with(version))
+            .expect(&format!(
+                "could not find Roblox version {} in history",
+                version
+            ))
     } else {
         debug!("no version specified, using most recent");
         version_history
@@ -28,7 +33,7 @@ pub async fn install_roblox_packages(
 
     info!(
         "downloading packages for Roblox version {}",
-        roblox_version.git_hash
+        roblox_version.version_id
     );
 
     let mut archive = fetch_roblox_packages(&roblox_version).await?;
@@ -66,7 +71,7 @@ pub async fn install_roblox_packages(
 
     info!(
         "successfully installed packages from Roblox version {} to {}",
-        roblox_version.git_hash,
+        roblox_version.version_id,
         dest_path.display()
     );
 

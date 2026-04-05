@@ -42,11 +42,11 @@ pub async fn fetch_roblox_deploy_history() -> Result<Vec<RobloxVersion>, anyhow:
 pub async fn fetch_roblox_packages(
     version: &RobloxVersion,
 ) -> Result<ZipArchive<Cursor<Vec<u8>>>, anyhow::Error> {
-    debug!("downloading package archive for {}", version.version_id);
+    debug!("downloading package archive for {}", version.git_hash);
 
     let res = reqwest::get(format!(
         "https://setup.rbxcdn.com/version-{}-extracontent-luapackages.zip",
-        version.version_id
+        version.git_hash
     ))
     .await?;
 
@@ -55,16 +55,4 @@ pub async fn fetch_roblox_packages(
     let archive = ZipArchive::new(cursor).unwrap();
 
     Ok(archive)
-}
-
-pub fn get_roblox_version_by_git_hash<'a>(
-    git_hash: &str,
-    version_history: &'a Vec<RobloxVersion>,
-) -> Option<&'a RobloxVersion> {
-    for version in version_history.iter().rev() {
-        if version.git_hash == git_hash {
-            return Some(version);
-        }
-    }
-    return None;
 }
