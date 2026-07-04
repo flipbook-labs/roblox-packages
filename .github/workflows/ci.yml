@@ -21,7 +21,9 @@ jobs:
   changelog:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event_name == 'pull_request'
+    # Skip the auto-generated publish PR: changewrite has already consumed the
+    # `.changes/` entries on that branch, so there is nothing left to require.
+    if: github.event_name == 'pull_request' && github.head_ref != 'publish-next-version'
     steps:
       - uses: actions/checkout@v4
 

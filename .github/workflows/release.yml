@@ -139,7 +139,7 @@ jobs:
           force-version: ${{ inputs.force-version || '' }}
           base: main
           branch: ${{ github.event_name == 'pull_request' && 'debug-publish-next-version' || 'publish-next-version' }}
-          prepare-only: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'debug:release-pr') }}
+          prepare-only: ${{ github.event_name == 'pull_request' }}
           post-draft-hook: |
             "$CHANGEWRITE_BIN" attach --tag "$CHANGEWRITE_TAG" --files releases/*.zip
           pr-title: ${{ github.event_name == 'pull_request' && '[DEBUG] Publish v{{version}}' || 'Publish v{{version}}' }}
