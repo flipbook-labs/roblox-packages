@@ -1,0 +1,7 @@
+[version]
+file = "Cargo.toml"
+pattern = 'name = "roblox%-packages"%s+version%s*=%s*"([^"]+)"'
+
+mirror = [
+  { file = "Cargo.lock", pattern = 'name = "roblox%-packages"%s+version%s*=%s*"([^"]+)"' },
+]
