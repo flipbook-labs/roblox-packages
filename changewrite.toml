@@ -1,0 +1,10 @@
+[version]
+current = "0.5.0"
+mirror = [
+  { file = "Cargo.toml" },
+  # Keep the crate's own entry in the lockfile in step so `cargo build --locked`
+  # still succeeds on the publish PR. The pattern targets the roblox-packages
+  # package block specifically so it never touches a dependency's version.
+  { file = "Cargo.lock", pattern = 'name = "roblox%-packages"%s+version = "([^"]+)"' },
+  { file = "loom.config.luau" },
+]
