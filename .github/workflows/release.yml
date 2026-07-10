@@ -1,19 +1,46 @@
 name: Release
 
 on:
-  pull_request:
-  release:
-    types: [published]
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    types: [
+        opened,
+        synchronize,
+        reopened,
+        # We include `labeled` so that tagging the PR with `debug:release-pr`
+        # will trigger a debug version of the release workflow.
+        labeled,
+      ]
+  workflow_dispatch:
+    inputs:
+      force-version:
+        description: "Open a publish PR that sets this exact version (e.g. 1.2.3)"
+        default: ""
+        required: false
 
 defaults:
   run:
     shell: bash
 
+env:
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
 jobs:
+  lock:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - uses: flipbook-labs/changewrite/publish-lock@v0.7.0
+        with:
+          locked: true
+          url: ${{ env.RUN_URL }}
+
   init:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'debug:release-pr')
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.value }}
@@ -28,6 +55,7 @@ jobs:
 
   build:
     needs: ["init"]
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'debug:release-pr')
     strategy:
       fail-fast: false
       matrix:
@@ -85,25 +113,93 @@ jobs:
           name: ${{ matrix.artifact-name }}
           path: release.zip
 
-  release-github:
-    name: Release (GitHub)
-    runs-on: ubuntu-latest
+  release:
+    name: Release
     needs: ["init", "build"]
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'debug:release-pr')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
+      pull-requests: write
+      statuses: write
+    outputs:
+      has_changes: ${{ steps.changewrite.outputs.has_changes }}
+      should_publish: ${{ steps.changewrite.outputs.should_publish }}
+      version: ${{ steps.changewrite.outputs.version }}
+      tag: ${{ steps.changewrite.outputs.tag }}
+    concurrency:
+      group: release-pr-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.FLIPBOOK_BACKEND_APP_ID }}
+          private-key: ${{ secrets.FLIPBOOK_BACKEND_APP_PRIVATE_KEY }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Use the App token so the version-bump PR triggers CI when pushed.
+          token: ${{ steps.app-token.outputs.token }}
+          # Build the changelog off `main` even on PR-triggered debug runs.
+          ref: main
+
+      - name: Download release assets
+        if: github.event_name != 'pull_request'
+        uses: actions/download-artifact@v4
         with:
           path: ./releases
 
       - name: Unpack releases
+        if: github.event_name != 'pull_request'
         run: ./scripts/unpack-releases.sh "./releases"
 
-      - uses: softprops/action-gh-release@v2
-        if: github.event.release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: flipbook-labs/changewrite@v0.7.0
+        id: changewrite
         with:
-          files: ./releases/*.zip
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pr-token: ${{ steps.app-token.outputs.token }}
+          force-version: ${{ inputs.force-version || '' }}
+          base: main
+          branch: ${{ github.event_name == 'pull_request' && 'debug-publish-next-version' || 'publish-next-version' }}
+          prepare-only: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'debug:release-pr') }}
+          # Attach the built platform binaries to the draft release before it's
+          # published so they ship with the release without a separate job.
+          post-draft-hook: |
+            "$CHANGEWRITE_BIN" attach --tag "$CHANGEWRITE_TAG" --files releases/*.zip
+          pr-title: ${{ github.event_name == 'pull_request' && '[DEBUG] Publish v{{version}}' || 'Publish v{{version}}' }}
+          pr-body: |
+            >[!IMPORTANT]
+            > This PR prepares the next release by bumping the version and updating the changelog.
+            >
+            > **Merging this PR will:**
+            >
+            > 1. Create and push tag `{{tag}}`
+            > 2. Create a draft GitHub release for that tag
+            > 3. Build binaries for macOS, Linux, and Windows and attach them
+            > 4. Publish the release
+
+            <details>
+            <summary><b>GitHub Release preview</b></summary>
+
+            # {{tag}}
+
+            **github-actions** released this 0 seconds ago 🔒 Immutable 🏷️ {{tag}} 🔗 SHA
+
+            {{notes}}
+            </details>
+
+            Next release will be available here:
+            {{repo_url}}/releases/tag/{{tag}}
+
+            🤖 This PR was generated by [this run]({{run_url}}).
+
+      - name: Unlock the publish PR
+        if: github.event_name == 'push'
+        uses: flipbook-labs/changewrite/publish-lock@v0.7.0
+        with:
+          locked: false
+          url: ${{ env.RUN_URL }}
