@@ -34,7 +34,7 @@ jobs:
     permissions:
       statuses: write
     steps:
-      - uses: flipbook-labs/changewrite/publish-lock@v0.7.0
+      - uses: flipbook-labs/changewrite/publish-lock@v0.9.0
         with:
           locked: true
           url: ${{ env.RUN_URL }}
@@ -42,6 +42,7 @@ jobs:
   init:
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'debug:release-pr')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.get_version.outputs.value }}
     steps:
@@ -92,6 +93,7 @@ jobs:
 
     name: build (${{ matrix.name }})
     runs-on: ${{ matrix.runner-os }}
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -118,16 +120,11 @@ jobs:
     needs: ["init", "build"]
     if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'debug:release-pr')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     permissions:
       contents: write
       pull-requests: write
       statuses: write
-    outputs:
-      has_changes: ${{ steps.changewrite.outputs.has_changes }}
-      should_publish: ${{ steps.changewrite.outputs.should_publish }}
-      version: ${{ steps.changewrite.outputs.version }}
-      tag: ${{ steps.changewrite.outputs.tag }}
     concurrency:
       group: release-pr-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -157,20 +154,16 @@ jobs:
         if: github.event_name != 'pull_request'
         run: ./scripts/unpack-releases.sh "./releases"
 
-      - uses: flipbook-labs/changewrite@v0.7.0
-        id: changewrite
+      - uses: flipbook-labs/changewrite@v0.9.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           pr-token: ${{ steps.app-token.outputs.token }}
           force-version: ${{ inputs.force-version || '' }}
-          base: main
-          branch: ${{ github.event_name == 'pull_request' && 'debug-publish-next-version' || 'publish-next-version' }}
-          prepare-only: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'debug:release-pr') }}
+          debug: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'debug:release-pr') }}
           # Attach the built platform binaries to the draft release before it's
           # published so they ship with the release without a separate job.
           post-draft-hook: |
             "$CHANGEWRITE_BIN" attach --tag "$CHANGEWRITE_TAG" --files releases/*.zip
-          pr-title: ${{ github.event_name == 'pull_request' && '[DEBUG] Publish v{{version}}' || 'Publish v{{version}}' }}
           pr-body: |
             >[!IMPORTANT]
             > This PR prepares the next release by bumping the version and updating the changelog.
@@ -199,7 +192,7 @@ jobs:
 
       - name: Unlock the publish PR
         if: github.event_name == 'push'
-        uses: flipbook-labs/changewrite/publish-lock@v0.7.0
+        uses: flipbook-labs/changewrite/publish-lock@v0.9.0
         with:
           locked: false
           url: ${{ env.RUN_URL }}

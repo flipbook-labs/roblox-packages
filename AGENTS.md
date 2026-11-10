@@ -12,7 +12,7 @@ Complete every step below before you write any code, tests, changelog entries, o
    rokit install && lute pkg install
    ```
 
-   `rokit install` puts `lute` on PATH, and `lute pkg install` fetches the Loom dependencies into `~/.loom/store`. The shared skills library is a dev dependency, so it lands in `~/.loom/store` for you to read; it is not part of the Rust build. Without this step the skills are not on disk. (The crate itself builds with Cargo — see "Repo specifics" — and does not need Loom.)
+   `rokit install` puts `lute` on PATH, and `lute pkg install` fetches the Loom dependencies into `~/.loom/store`. The shared skills library is a dev dependency, so it lands in `~/.loom/store` for you to read; it is not part of the Rust build. Without this step the skills are not on disk. The crate itself builds with Cargo and does not need Loom; see "Repo specifics".
 
 2. Resolve the concrete skills path from the pinned version (do not guess it):
 
