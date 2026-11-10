@@ -1,301 +1,315 @@
-use glob::glob;
+use anyhow::{Context, bail};
 use log::debug;
-use serde::Deserialize;
+use regex::Regex;
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 // Collection of functions for working with Rotriever's package index
 
-const ROTRIEVER_LOCKFILE_NAME: &str = "rotriever.lock";
+// Rotriever generates a linker module for every dependency, which requires
+// the dependency's folder in the index by its exact name:
+//
+//     local Package = require(PackageIndex["Otter-31ab8d40-1.3.7"]["Otter"])
+//
+// Roblox resolves packages by following these at runtime, so pruning follows
+// them too. The lockfile's dependency strings have changed format between
+// snapshots and don't name index folders, so they can't be trusted for this
+static LINKER_TARGET_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"PackageIndex\["([^"]+)"\]"#).unwrap());
 
-#[derive(Deserialize, Debug, Clone)]
-struct RotrieverLockfilePackage {
-    name: String,
-    version: String,
-    dependencies: Option<Vec<String>>,
+fn get_linker_targets(linker_source: &str) -> Vec<String> {
+    LINKER_TARGET_PATTERN
+        .captures_iter(linker_source)
+        .map(|captures| captures[1].to_string())
+        .collect()
 }
 
-#[derive(Deserialize, Debug, Clone)]
-struct RotrieverLockfile {
-    package: Vec<RotrieverLockfilePackage>,
-}
+fn get_linker_paths(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut linker_paths = vec![];
 
-fn get_package_path_from_index(
-    package_name: &str,
-    package_version: &str,
-    rotriever_index_path: &Path,
-) -> Option<PathBuf> {
-    let package_path = rotriever_index_path.join(package_name);
-
-    // Sometimes we'll get lucky and the package will match its name exactly
-    if package_path.exists() {
-        return Some(package_path);
-    }
-
-    let full_package_path =
-        rotriever_index_path.join(format!("{}-*-{}", package_name, package_version));
-
-    let package_path_pattern = full_package_path
-        .to_str()
-        .expect("Failed to convert path to string");
-
-    for entry in glob(&package_path_pattern).expect("Failed to read glob pattern") {
-        match entry {
-            Ok(path) => {
-                if path.is_dir() {
-                    return Some(path);
-                }
-            }
-            Err(e) => println!("{:?}", e),
+    for entry in fs::read_dir(dir).with_context(|| format!("Failed to read {}", dir.display()))? {
+        let path = entry?.path();
+        if path.is_file() && path.extension().is_some_and(|ext| ext == "lua") {
+            linker_paths.push(path);
         }
     }
 
-    None
+    Ok(linker_paths)
 }
 
-fn get_package(
-    package_name: &str,
-    package_version: Option<&str>,
-    rotriever_lockfile: &RotrieverLockfile,
-) -> Option<RotrieverLockfilePackage> {
-    for package in &rotriever_lockfile.package {
-        if package.name == package_name {
-            if let Some(version) = package_version {
-                if package.version != version {
-                    continue;
-                }
-            }
-            return Some(package.clone());
-        }
-    }
-    None
-}
+fn get_packages_to_keep(
+    package_names: &[String],
+    packages_path: &Path,
+) -> anyhow::Result<HashSet<String>> {
+    let package_index_path = packages_path.join("_Index");
 
-// Rotriever stores package dependencies as "<consumer_name> <package_name>
-// <version> <source>". Newer lockfiles can insert markers like `<patched>`
-// after the consumer name, which have to be skipped or the dependency is
-// pruned. This function parses that and finds the actual package in the
-// lockfile
-fn get_package_from_dependency_string(
-    dependency_string: String,
-    rotriever_lockfile: &RotrieverLockfile,
-) -> Option<RotrieverLockfilePackage> {
-    let parts = dependency_string
-        .split(" ")
-        .filter(|part| !(part.starts_with('<') && part.ends_with('>')))
-        .collect::<Vec<&str>>();
-    if parts.len() < 4 {
-        return None;
-    }
-
-    let package_name = parts[1];
-    let package_version = parts[2];
-
-    get_package(package_name, Some(package_version), rotriever_lockfile)
-}
-
-fn get_packages_to_keep(package_names: &Vec<String>, dest_path: &Path) -> Vec<PathBuf> {
-    let lockfile_content = fs::read_to_string(dest_path.join(ROTRIEVER_LOCKFILE_NAME))
-        .expect("Failed to read rotriever.lock");
-    let rotriever_lockfile: RotrieverLockfile =
-        toml::from_str(&lockfile_content).expect("Failed to parse rotriever.lock as TOML");
-
-    let rotriever_index_path = dest_path.join("Packages/_Index");
-
-    let mut packages_to_keep: Vec<PathBuf> = vec![];
-
-    fn process(
-        package: &RotrieverLockfilePackage,
-        rotriever_lockfile: &RotrieverLockfile,
-        rotriever_index_path: &Path,
-        packages_to_keep: &mut Vec<PathBuf>,
-    ) {
-        let package_dependencies = package.dependencies.clone().unwrap_or(vec![]);
-
-        if let Some(root_dependency_path) =
-            get_package_path_from_index(&package.name, &package.version, &rotriever_index_path)
-        {
-            if packages_to_keep.contains(&root_dependency_path) {
-                debug!("already processed {}, skipping", package.name);
-                return;
-            }
-
-            debug!(
-                "found source for {} at {}",
-                package.name,
-                root_dependency_path.display()
+    let mut linker_paths = vec![];
+    for package_name in package_names {
+        let linker_path = packages_path.join(format!("{}.lua", package_name));
+        if !linker_path.is_file() {
+            bail!(
+                "Could not find package {} in {}",
+                package_name,
+                packages_path.display()
             );
-            packages_to_keep.push(root_dependency_path);
         }
+        linker_paths.push(linker_path);
+    }
 
-        for dependency in package_dependencies {
-            if let Some(dependency_package) =
-                get_package_from_dependency_string(dependency, &rotriever_lockfile)
-            {
-                process(
-                    &dependency_package,
-                    &rotriever_lockfile,
-                    &rotriever_index_path,
-                    packages_to_keep,
+    let mut packages_to_keep = HashSet::new();
+
+    while let Some(linker_path) = linker_paths.pop() {
+        let linker_source = fs::read_to_string(&linker_path)
+            .with_context(|| format!("Failed to read {}", linker_path.display()))?;
+
+        for target in get_linker_targets(&linker_source) {
+            if packages_to_keep.contains(&target) {
+                continue;
+            }
+
+            let target_path = package_index_path.join(&target);
+            if !target_path.is_dir() {
+                bail!(
+                    "{} links to {}, which is missing from the package index",
+                    linker_path.display(),
+                    target
                 );
             }
+
+            debug!("keeping {} (linked from {})", target, linker_path.display());
+            linker_paths.extend(get_linker_paths(&target_path)?);
+            packages_to_keep.insert(target);
         }
     }
 
-    for package_name in package_names {
-        if let Some(package) = get_package(package_name, None, &rotriever_lockfile) {
-            debug!("processing top-level package: {}", package.name);
-            process(
-                &package,
-                &rotriever_lockfile,
-                &rotriever_index_path,
-                &mut packages_to_keep,
-            );
-        }
-    }
-
-    packages_to_keep
+    Ok(packages_to_keep)
 }
 
-pub fn prune_unused_dependencies(package_names: &Vec<String>, dest_path: &Path) {
-    let packages_to_keep = get_packages_to_keep(package_names, dest_path);
+fn remove_path(path: &Path) -> anyhow::Result<()> {
+    if path.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
+    .with_context(|| format!("Failed to remove {}", path.display()))
+}
 
-    debug!("packages to keep: {:?}", packages_to_keep);
-
+pub fn prune_unused_dependencies(package_names: &[String], dest_path: &Path) -> anyhow::Result<()> {
     let packages_path = dest_path.join("Packages");
     let package_index_path = packages_path.join("_Index");
 
-    let packages_paths = fs::read_dir(&packages_path)
-        .expect(format!("Failed to read {}", packages_path.display()).as_str());
+    let packages_to_keep = get_packages_to_keep(package_names, &packages_path)?;
 
-    for entry in packages_paths {
-        let entry = entry.expect(
-            format!(
-                "Failed to read directory entry in {}",
-                packages_path.display()
-            )
-            .as_str(),
-        );
+    debug!("packages to keep: {:?}", packages_to_keep);
 
-        let mut should_remove = true;
+    let root_linkers_to_keep: HashSet<String> = package_names
+        .iter()
+        .map(|package_name| format!("{}.lua", package_name))
+        .collect();
 
-        if entry.path() == package_index_path {
+    for entry in fs::read_dir(&packages_path)? {
+        let entry = entry?;
+        let file_name = entry.file_name().to_string_lossy().to_string();
+
+        if entry.path() == package_index_path || root_linkers_to_keep.contains(&file_name) {
             continue;
         }
 
-        for package_name_to_keep in package_names {
-            if entry.file_name().to_string_lossy() == format!("{}.lua", package_name_to_keep) {
-                debug!("keeping {}", entry.path().display());
-                should_remove = false;
-                continue;
-            }
-        }
-
-        if should_remove {
-            debug!("removing unused linker module: {}", entry.path().display());
-            if entry.path().is_dir() {
-                fs::remove_dir_all(entry.path()).expect("Failed to remove directory");
-            } else {
-                fs::remove_file(entry.path()).expect("Failed to remove file");
-            }
-        }
+        debug!("removing unused linker module: {}", entry.path().display());
+        remove_path(&entry.path())?;
     }
 
-    // Prune anything not in packages_to_keep from Packages/_Index
-    let package_index_paths = fs::read_dir(&package_index_path)
-        .expect(format!("Failed to read {}", package_index_path.display()).as_str());
+    for entry in fs::read_dir(&package_index_path)? {
+        let entry = entry?;
 
-    for entry in package_index_paths {
-        let entry = entry.expect(
-            format!(
-                "Failed to read directory entry in {}",
-                package_index_path.display()
-            )
-            .as_str(),
-        );
-
-        let mut should_remove = true;
-
-        for package_path_to_keep in &packages_to_keep {
-            if entry.path() == *package_path_to_keep {
-                debug!("keeping {}", entry.path().display());
-                should_remove = false;
-                continue;
-            }
+        if packages_to_keep.contains(&entry.file_name().to_string_lossy().to_string()) {
+            continue;
         }
 
-        if should_remove {
-            debug!("removing unused package: {}", entry.path().display());
-            if entry.path().is_dir() {
-                fs::remove_dir_all(entry.path()).expect("Failed to remove directory");
-            } else {
-                fs::remove_file(entry.path()).expect("Failed to remove file");
-            }
-        }
+        debug!("removing unused package: {}", entry.path().display());
+        remove_path(&entry.path())?;
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn lockfile() -> RotrieverLockfile {
-        toml::from_str(
-            r#"
-            [[package]]
-            name = "React"
-            version = "17.3.13"
-
-            [[package]]
-            name = "RoactCompat"
-            version = "17.3.13"
-            "#,
+    fn linker(target: &str, name: &str) -> String {
+        format!(
+            "local PackageIndex = script.Parent._Index\n\
+             local Package = require(PackageIndex[\"{target}\"][\"{name}\"])\n\
+             return Package\n"
         )
-        .unwrap()
+    }
+
+    struct Fixture {
+        root: PathBuf,
+    }
+
+    impl Fixture {
+        fn new(name: &str) -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "roblox-packages-{}-{}",
+                name,
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(root.join("Packages/_Index")).unwrap();
+            Self { root }
+        }
+
+        fn packages(&self) -> PathBuf {
+            self.root.join("Packages")
+        }
+
+        fn add_root_linker(&self, name: &str, target: &str) {
+            fs::write(
+                self.packages().join(format!("{name}.lua")),
+                linker(target, name),
+            )
+            .unwrap();
+        }
+
+        fn add_package(&self, folder: &str, name: &str, dependencies: &[(&str, &str)]) {
+            let package_path = self.packages().join("_Index").join(folder);
+            fs::create_dir_all(package_path.join(name)).unwrap();
+            fs::write(package_path.join(name).join("init.lua"), "return {}").unwrap();
+
+            for (alias, target) in dependencies {
+                let target_name = target.split('-').next().unwrap();
+                fs::write(
+                    package_path.join(format!("{alias}.lua")),
+                    linker(target, target_name),
+                )
+                .unwrap();
+            }
+        }
+
+        fn index_contents(&self) -> HashSet<String> {
+            fs::read_dir(self.packages().join("_Index"))
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+                .collect()
+        }
+
+        fn root_contents(&self) -> HashSet<String> {
+            fs::read_dir(self.packages())
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+                .collect()
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn set(items: &[&str]) -> HashSet<String> {
+        items.iter().map(|item| item.to_string()).collect()
     }
 
     #[test]
-    fn finds_dependency() {
-        let package = get_package_from_dependency_string(
-            "React React 17.3.13 registry".to_string(),
-            &lockfile(),
-        )
-        .unwrap();
-
-        assert_eq!(package.name, "React");
-        assert_eq!(package.version, "17.3.13");
+    fn reads_linker_target() {
+        assert_eq!(
+            get_linker_targets(&linker("Otter-31ab8d40-1.3.7", "Otter")),
+            vec!["Otter-31ab8d40-1.3.7"]
+        );
     }
 
     #[test]
-    fn finds_patched_dependency() {
-        let package = get_package_from_dependency_string(
-            "React <patched> React 17.3.13 registry".to_string(),
-            &lockfile(),
-        )
-        .unwrap();
-
-        assert_eq!(package.name, "React");
-        assert_eq!(package.version, "17.3.13");
+    fn ignores_source_without_linker_target() {
+        assert!(get_linker_targets("return {}").is_empty());
     }
 
     #[test]
-    fn finds_patched_dependency_by_name_instead_of_alias() {
-        let package = get_package_from_dependency_string(
-            "Roact <patched> RoactCompat 17.3.13 registry".to_string(),
-            &lockfile(),
-        )
-        .unwrap();
+    fn keeps_transitive_dependencies_of_requested_packages() {
+        let fixture = Fixture::new("transitive");
+        fixture.add_root_linker("Foundation", "Foundation");
+        fixture.add_root_linker("Unused", "Unused");
+        fixture.add_package("Foundation", "Foundation", &[("React", "React")]);
+        fixture.add_package("React", "React", &[("Shared", "Shared")]);
+        fixture.add_package("Shared", "Shared", &[]);
+        fixture.add_package("Unused", "Unused", &[]);
 
-        assert_eq!(package.name, "RoactCompat");
+        prune_unused_dependencies(&["Foundation".to_string()], &fixture.root).unwrap();
+
+        assert_eq!(
+            fixture.index_contents(),
+            set(&["Foundation", "React", "Shared"])
+        );
+        assert_eq!(fixture.root_contents(), set(&["Foundation.lua", "_Index"]));
     }
 
     #[test]
-    fn rejects_malformed_dependency() {
-        let package =
-            get_package_from_dependency_string("React <patched> React".to_string(), &lockfile());
+    fn keeps_the_version_each_linker_points_at() {
+        let fixture = Fixture::new("versions");
+        fixture.add_root_linker("Foundation", "Foundation");
+        fixture.add_package(
+            "Foundation",
+            "Foundation",
+            &[
+                ("Tokens", "Tokens-31ab8d40-6.1.1"),
+                ("TokensV4", "Tokens-31ab8d40-4.0.11"),
+            ],
+        );
+        fixture.add_package("Tokens-31ab8d40-6.1.1", "Tokens", &[]);
+        fixture.add_package("Tokens-31ab8d40-4.0.11", "Tokens", &[]);
+        fixture.add_package("Tokens-31ab8d40-1.0.0", "Tokens", &[]);
 
-        assert!(package.is_none());
+        prune_unused_dependencies(&["Foundation".to_string()], &fixture.root).unwrap();
+
+        assert_eq!(
+            fixture.index_contents(),
+            set(&[
+                "Foundation",
+                "Tokens-31ab8d40-6.1.1",
+                "Tokens-31ab8d40-4.0.11"
+            ])
+        );
+    }
+
+    #[test]
+    fn handles_dependency_cycles() {
+        let fixture = Fixture::new("cycles");
+        fixture.add_root_linker("A", "A");
+        fixture.add_package("A", "A", &[("B", "B")]);
+        fixture.add_package("B", "B", &[("A", "A")]);
+
+        prune_unused_dependencies(&["A".to_string()], &fixture.root).unwrap();
+
+        assert_eq!(fixture.index_contents(), set(&["A", "B"]));
+    }
+
+    #[test]
+    fn rejects_unknown_package() {
+        let fixture = Fixture::new("unknown");
+        fixture.add_root_linker("Foundation", "Foundation");
+        fixture.add_package("Foundation", "Foundation", &[]);
+
+        let result = prune_unused_dependencies(&["Fondation".to_string()], &fixture.root);
+
+        assert!(result.is_err());
+        assert_eq!(fixture.index_contents(), set(&["Foundation"]));
+    }
+
+    #[test]
+    fn rejects_linker_to_missing_package() {
+        let fixture = Fixture::new("missing");
+        fixture.add_root_linker("Foundation", "Foundation");
+        fixture.add_package("Foundation", "Foundation", &[("React", "React")]);
+
+        let result = prune_unused_dependencies(&["Foundation".to_string()], &fixture.root);
+
+        assert!(result.is_err());
+        assert_eq!(fixture.index_contents(), set(&["Foundation"]));
     }
 }
