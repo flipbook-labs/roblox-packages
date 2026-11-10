@@ -1,4 +1,5 @@
 use log::{debug, info};
+use std::collections::HashMap;
 use std::env::current_dir;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ pub async fn install_roblox_packages(
     dest: &PathBuf,
     version: &Option<String>,
     dependencies: &Option<Vec<String>>,
+    externals: &HashMap<String, String>,
 ) -> Result<(), anyhow::Error> {
     let version_history = fetch_roblox_deploy_history().await?;
 
@@ -66,7 +68,7 @@ pub async fn install_roblox_packages(
     }
 
     if let Some(dependencies) = dependencies {
-        prune_unused_dependencies(dependencies, &dest_path)?;
+        prune_unused_dependencies(dependencies, externals, &dest_path)?;
     }
 
     info!(
