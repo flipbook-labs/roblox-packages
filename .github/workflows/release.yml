@@ -40,7 +40,6 @@ jobs:
           url: ${{ env.RUN_URL }}
 
   init:
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'debug:release-pr')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -54,9 +53,10 @@ jobs:
           PACKAGE_VERSION=$(cargo read-manifest | jq -r .version)
           echo "value=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
 
+  # The main branch ruleset requires a passing build for each platform, so
+  # this job runs on every pull request, not only when releasing.
   build:
     needs: ["init"]
-    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'debug:release-pr')
     strategy:
       fail-fast: false
       matrix:
