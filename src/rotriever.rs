@@ -73,11 +73,13 @@ fn get_package(
     None
 }
 
-// Rotriever stores package dependencies as "<consumer_name> <package_name>
-// <version> <source>". Newer lockfiles can insert markers like `<patched>`
-// after the consumer name, which have to be skipped or the dependency is
-// pruned. This function parses that and finds the actual package in the
-// lockfile
+// Rotriever lists each dependency in the lockfile as one string of
+// space-separated tokens: the name the consumer requires it by, any markers
+// wrapped in angle brackets, then the package name, version, and source. For
+// example, "Roact <patched> RoactCompat 17.3.13 registry" is RoactCompat
+// 17.3.13, required as Roact. This skips the markers, reads the package name
+// and version, and returns the lockfile package that matches both, or None
+// when there isn't one.
 fn get_package_from_dependency_string(
     dependency_string: String,
     rotriever_lockfile: &RotrieverLockfile,
