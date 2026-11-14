@@ -101,6 +101,20 @@ jobs:
         with:
           targets: ${{ matrix.cargo-target }}
 
+      # Each target gets its own cache. The key needs the target because both
+      # macOS targets build on the same runner image, which would otherwise
+      # give them the same key.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.cargo-target }}
+          # Pull requests restore main's cache but don't save their own. GitHub
+          # caps the repository's total cache size, so this keeps it to one
+          # cache per target.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Save even when the build fails, so one failed main run doesn't
+          # leave every pull request building from scratch
+          cache-on-failure: true
+
       - name: Build binary
         run: |
           cargo build \
