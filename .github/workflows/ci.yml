@@ -97,11 +97,19 @@ jobs:
           components: clippy
           targets: ${{ matrix.cargo-target }}
 
-      - name: Install binstall
-        uses: cargo-bins/cargo-binstall@main
-
-      - name: Install nextest
-        run: cargo binstall --locked cargo-nextest
+      # Each target gets its own cache. The key needs the target because both
+      # macOS targets build on the same runner image, which would otherwise
+      # give them the same key.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.cargo-target }}
+          # Pull requests restore main's cache but don't save their own. GitHub
+          # caps the repository's total cache size, so this keeps it to one
+          # cache per target.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Save even when a later step fails, so one failed main run doesn't
+          # leave every pull request building from scratch
+          cache-on-failure: true
 
       - name: Build
         run: |
@@ -115,14 +123,20 @@ jobs:
           --locked --all-features \
           --target ${{ matrix.cargo-target }}
 
-      # TODO: Uncomment when we actually have tests
+      # TODO: Uncomment when we actually have tests. Install nextest with
+      # taiki-e/install-action, which downloads a prebuilt binary instead of
+      # compiling it from source.
+      # - uses: taiki-e/install-action@nextest
+      #
       # - name: Test
       #   run: |
       #     cargo nextest run --no-fail-fast \
       #     --locked --all-features \
       #     --target ${{ matrix.cargo-target }}
 
+      # Running the binary the Build step made for this target means the
+      # smoketest doesn't compile a second copy for the runner's own target
       - name: Smoketest
         run: |
-          cargo run -- install RobloxPackages
+          cargo run --locked --all-features --target ${{ matrix.cargo-target }} -- install RobloxPackages
           find RobloxPackages -name Foundation.lua
