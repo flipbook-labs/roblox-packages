@@ -1,7 +1,7 @@
 categories = ["Features", "Fixes", "Changes", "Dependencies"]
 
 [version]
-current = "0.5.0"
+current = "0.5.1"
 mirror = [
   { file = "Cargo.toml" },
   # Keep the crate's own entry in the lockfile in step so `cargo build --locked`
