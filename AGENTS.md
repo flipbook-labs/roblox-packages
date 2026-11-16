@@ -17,7 +17,7 @@ Complete every step below before you write any code, tests, changelog entries, o
 2. Resolve the concrete skills path from the lockfile (do not guess it):
 
    ```sh
-   rg -o '@pkg/agent-skills[^"]*' loom.lock.luau
+   rg -o '@pkg/agent-skills[^"]*' pkg.lock.luau
    ```
 
    The store folder is named after a hash of the source and revision, so it can't be built from the `rev` alone. Replace the `@pkg/` prefix with `~/.loom/store/` to get the path, and use it wherever `<skills>` appears below. The store can hold other versions too; ignore them.
@@ -45,4 +45,4 @@ Skills are living documents. When your work here contradicts a skill (a renamed 
 
 - This is a Rust crate. The toolchain is stable Rust via `rustup`; build with `cargo build`, lint with `cargo clippy --all-features` and `cargo fmt --check`, and run tests with `cargo nextest run` (or `cargo test`).
 - The library lives in [`src/`](src) and the CLI entry point is wired through `Cargo.toml`'s `[lib]`. `cargo run -- install <index>` is the primary smoke test.
-- Releases are handled by the [Changewrite](https://github.com/flipbook-labs/changewrite) action. The version of record is `current` in [`changewrite.toml`](changewrite.toml), mirrored into `Cargo.toml`, `Cargo.lock`, and `loom.config.luau`. Unreleased entries live as partials in [`.changes/`](.changes) and are assembled into [`CHANGELOG.md`](CHANGELOG.md) at release time. Add a `.changes/` entry for any user-facing change.
+- Releases are handled by the [Changewrite](https://github.com/flipbook-labs/changewrite) action. The version of record is `current` in [`changewrite.toml`](changewrite.toml), mirrored into `Cargo.toml`, `Cargo.lock`, and `pkg.luau`. Unreleased entries live as partials in [`.changes/`](.changes) and are assembled into [`CHANGELOG.md`](CHANGELOG.md) at release time. Add a `.changes/` entry for any user-facing change.
