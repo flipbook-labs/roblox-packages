@@ -9,7 +9,7 @@ mirror = [
   # still succeeds on the publish PR. The pattern targets the roblox-packages
   # package block specifically so it never touches a dependency's version.
   { file = "Cargo.lock", pattern = 'name = "roblox%-packages"%s+version = "([^"]+)"' },
-  { file = "loom.config.luau" },
+  { file = "pkg.luau" },
 ]
 
 [kind]
