@@ -9,18 +9,12 @@ Complete every step below before you write any code, tests, changelog entries, o
 1. Install the skills toolchain and dependencies:
 
    ```sh
-   rokit install && lute pkg install
+   rokit install && lute pkg install --vendor
    ```
 
-   `rokit install` puts `lute` on PATH, and `lute pkg install` fetches the Loom dependencies into `~/.loom/store`. The shared skills library is a dev dependency, so it lands in `~/.loom/store` for you to read; it is not part of the Rust build. Without this step the skills are not on disk. The crate itself builds with Cargo and does not need Loom; see "Repo specifics".
+   `rokit install` puts `lute` on PATH, and `lute pkg install --vendor` copies each dependency in [`pkg.luau`](pkg.luau) into a gitignored `.lpm/<key>@<rev>` folder. The shared skills library is a dev dependency, so it lands in `.lpm/` for you to read; it is not part of the Rust build. Without this step the skills are not on disk. The crate itself builds with Cargo and does not need Lute; see "Repo specifics".
 
-2. Resolve the concrete skills path from the lockfile (do not guess it):
-
-   ```sh
-   rg -o '@pkg/agent-skills[^"]*' pkg.lock.luau
-   ```
-
-   The store folder is named after a hash of the source and revision, so it can't be built from the `rev` alone. Replace the `@pkg/` prefix with `~/.loom/store/` to get the path, and use it wherever `<skills>` appears below. The store can hold other versions too; ignore them.
+2. Find the skills folder: it's `.lpm/agent-skills@<rev>`, where `<rev>` is the `agent-skills` rev in [`pkg.luau`](pkg.luau). Use that path wherever `<skills>` appears below.
 
 3. Read the routing index at `<skills>/AGENTS.md` in full. Its **Project Skills** section lists every skill with a trigger-rich one-liner, so you know what exists before you start. This read is unconditional.
 
