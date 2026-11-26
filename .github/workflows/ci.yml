@@ -18,8 +18,35 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    permissions:
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `require-entry` diffs against the PR base branch, so a merge-base must
+          # exist. Full history guarantees it (the default depth-1 checkout does not).
+          fetch-depth: 0
+
+      - uses: flipbook-labs/changewrite@v0.16.0
+        with:
+          require-entry: 'true'
+
+      # Clear the publish-lock status on this PR's head so a required check can pass.
+      # The publish PR gets its lock managed by the release workflow instead.
+      - uses: flipbook-labs/changewrite/publish-lock@v0.16.0
+        if: github.head_ref != 'publish-next-version'
+        with:
+          locked: false
+          sha: ${{ github.event.pull_request.head.sha }}
+          url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -61,6 +88,7 @@ jobs:
 
     name: test (${{ matrix.name }})
     runs-on: ${{ matrix.runner-os }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -69,11 +97,19 @@ jobs:
           components: clippy
           targets: ${{ matrix.cargo-target }}
 
-      - name: Install binstall
-        uses: cargo-bins/cargo-binstall@main
-
-      - name: Install nextest
-        run: cargo binstall --locked cargo-nextest
+      # Each target gets its own cache. The key needs the target because both
+      # macOS targets build on the same runner image, which would otherwise
+      # give them the same key.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.cargo-target }}
+          # Pull requests restore main's cache but don't save their own. GitHub
+          # caps the repository's total cache size, so this keeps it to one
+          # cache per target.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Save even when a later step fails, so one failed main run doesn't
+          # leave every pull request building from scratch
+          cache-on-failure: true
 
       - name: Build
         run: |
@@ -87,14 +123,20 @@ jobs:
           --locked --all-features \
           --target ${{ matrix.cargo-target }}
 
-      # TODO: Uncomment when we actually have tests
+      # TODO: Uncomment when we actually have tests. Install nextest with
+      # taiki-e/install-action, which downloads a prebuilt binary instead of
+      # compiling it from source.
+      # - uses: taiki-e/install-action@nextest
+      #
       # - name: Test
       #   run: |
       #     cargo nextest run --no-fail-fast \
       #     --locked --all-features \
       #     --target ${{ matrix.cargo-target }}
 
+      # Running the binary the Build step made for this target means the
+      # smoketest doesn't compile a second copy for the runner's own target
       - name: Smoketest
         run: |
-          cargo run -- install RobloxPackages
+          cargo run --locked --all-features --target ${{ matrix.cargo-target }} -- install RobloxPackages
           find RobloxPackages -name Foundation.lua
