@@ -66,7 +66,7 @@ pub async fn install_roblox_packages(
     }
 
     if let Some(dependencies) = dependencies {
-        prune_unused_dependencies(dependencies, &dest_path);
+        prune_unused_dependencies(dependencies, &dest_path)?;
     }
 
     info!(
