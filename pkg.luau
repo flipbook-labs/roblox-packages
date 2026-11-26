@@ -5,7 +5,7 @@
 return {
 	package = {
 		name = "roblox-packages",
-		version = "0.5.2",
+		version = "0.6.0",
 		dev_dependencies = {
 			["agent-skills"] = {
 				rev = "v0.9.0",

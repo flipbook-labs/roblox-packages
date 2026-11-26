@@ -2,7 +2,7 @@ return {
 	categories = { "Features", "Changes", "Fixes", "Dependencies", "Internal" },
 	collapsed = { "Dependencies", "Internal" },
 	version = {
-		current = "0.5.2",
+		current = "0.6.0",
 		mirror = {
 			{ file = "Cargo.toml" },
 			{ file = "Cargo.lock", pattern = 'name = "roblox%-packages"%s+version = "([^"]+)"' },
