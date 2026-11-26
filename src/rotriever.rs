@@ -1,8 +1,8 @@
 use anyhow::{Context, bail};
-use log::debug;
-use regex::Regex;
+use log::{debug, warn};
+use regex::{NoExpand, Regex};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -19,13 +19,36 @@ use std::{
 // them too. The lockfile's dependency strings have changed format between
 // snapshots and don't name index folders, so they can't be trusted for this
 static LINKER_TARGET_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"PackageIndex\["([^"]+)"\]"#).unwrap());
+    LazyLock::new(|| Regex::new(r#"PackageIndex\["([^"]+)"\]\["([^"]+)"\]"#).unwrap());
 
-fn get_linker_targets(linker_source: &str) -> Vec<String> {
+#[derive(Debug, PartialEq)]
+struct LinkerTarget {
+    folder: String,
+    package_name: String,
+}
+
+fn get_linker_targets(linker_source: &str) -> Vec<LinkerTarget> {
     LINKER_TARGET_PATTERN
         .captures_iter(linker_source)
-        .map(|captures| captures[1].to_string())
+        .map(|captures| LinkerTarget {
+            folder: captures[1].to_string(),
+            package_name: captures[2].to_string(),
+        })
         .collect()
+}
+
+// Matched by package name instead of linker name so aliases are covered too,
+// such as Foundation's `Roact` linker for RoactCompat
+fn link_to_external(linker_source: &str, package_name: &str, require_target: &str) -> String {
+    let pattern = Regex::new(&format!(
+        r#"PackageIndex\["[^"]+"\]\["{}"\]"#,
+        regex::escape(package_name)
+    ))
+    .unwrap();
+
+    pattern
+        .replace_all(linker_source, NoExpand(require_target))
+        .to_string()
 }
 
 fn get_linker_paths(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
@@ -43,6 +66,7 @@ fn get_linker_paths(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
 
 fn get_packages_to_keep(
     package_names: &[String],
+    externals: &HashMap<String, String>,
     packages_path: &Path,
 ) -> anyhow::Result<HashSet<String>> {
     let package_index_path = packages_path.join("_Index");
@@ -61,28 +85,56 @@ fn get_packages_to_keep(
     }
 
     let mut packages_to_keep = HashSet::new();
+    let mut linked_externals = HashSet::new();
 
     while let Some(linker_path) = linker_paths.pop() {
-        let linker_source = fs::read_to_string(&linker_path)
+        let mut linker_source = fs::read_to_string(&linker_path)
             .with_context(|| format!("Failed to read {}", linker_path.display()))?;
 
         for target in get_linker_targets(&linker_source) {
-            if packages_to_keep.contains(&target) {
+            if let Some(require_target) = externals.get(&target.package_name) {
+                debug!(
+                    "linking {} to external {}",
+                    linker_path.display(),
+                    target.package_name
+                );
+                linker_source =
+                    link_to_external(&linker_source, &target.package_name, require_target);
+                fs::write(&linker_path, &linker_source)
+                    .with_context(|| format!("Failed to write {}", linker_path.display()))?;
+                linked_externals.insert(target.package_name);
                 continue;
             }
 
-            let target_path = package_index_path.join(&target);
+            if packages_to_keep.contains(&target.folder) {
+                continue;
+            }
+
+            let target_path = package_index_path.join(&target.folder);
             if !target_path.is_dir() {
                 bail!(
                     "{} links to {}, which is missing from the package index",
                     linker_path.display(),
-                    target
+                    target.folder
                 );
             }
 
-            debug!("keeping {} (linked from {})", target, linker_path.display());
+            debug!(
+                "keeping {} (linked from {})",
+                target.folder,
+                linker_path.display()
+            );
             linker_paths.extend(get_linker_paths(&target_path)?);
-            packages_to_keep.insert(target);
+            packages_to_keep.insert(target.folder);
+        }
+    }
+
+    for package_name in externals.keys() {
+        if !linked_externals.contains(package_name) {
+            warn!(
+                "external package {} is not a dependency of any installed package",
+                package_name
+            );
         }
     }
 
@@ -98,11 +150,15 @@ fn remove_path(path: &Path) -> anyhow::Result<()> {
     .with_context(|| format!("Failed to remove {}", path.display()))
 }
 
-pub fn prune_unused_dependencies(package_names: &[String], dest_path: &Path) -> anyhow::Result<()> {
+pub fn prune_unused_dependencies(
+    package_names: &[String],
+    externals: &HashMap<String, String>,
+    dest_path: &Path,
+) -> anyhow::Result<()> {
     let packages_path = dest_path.join("Packages");
     let package_index_path = packages_path.join("_Index");
 
-    let packages_to_keep = get_packages_to_keep(package_names, &packages_path)?;
+    let packages_to_keep = get_packages_to_keep(package_names, externals, &packages_path)?;
 
     debug!("packages to keep: {:?}", packages_to_keep);
 
@@ -221,8 +277,80 @@ mod tests {
     fn reads_linker_target() {
         assert_eq!(
             get_linker_targets(&linker("Otter-31ab8d40-1.3.7", "Otter")),
-            vec!["Otter-31ab8d40-1.3.7"]
+            vec![LinkerTarget {
+                folder: "Otter-31ab8d40-1.3.7".to_string(),
+                package_name: "Otter".to_string(),
+            }]
         );
+    }
+
+    #[test]
+    fn links_to_external_by_package_name() {
+        let source = link_to_external(
+            &linker("RoactCompat", "RoactCompat"),
+            "RoactCompat",
+            "script.Parent.Parent.Packages.Roact",
+        );
+
+        assert!(source.contains("local Package = require(script.Parent.Parent.Packages.Roact)"));
+        assert!(!source.contains("PackageIndex[\"RoactCompat\"]"));
+    }
+
+    #[test]
+    fn leaves_other_linkers_alone() {
+        let source = linker("ReactIs", "ReactIs");
+
+        assert_eq!(link_to_external(&source, "React", "Packages.React"), source);
+    }
+
+    #[test]
+    fn inserts_require_target_literally() {
+        let source = link_to_external(&linker("React", "React"), "React", "Packages[\"$1\"]");
+
+        assert!(source.contains("require(Packages[\"$1\"])"));
+    }
+
+    #[test]
+    fn prunes_external_packages_and_links_to_them() {
+        let fixture = Fixture::new("externals");
+        fixture.add_root_linker("Foundation", "Foundation");
+        fixture.add_package(
+            "Foundation",
+            "Foundation",
+            &[
+                ("React", "React"),
+                ("ReactRoblox", "ReactRoblox"),
+                ("Dash", "Dash"),
+            ],
+        );
+        fixture.add_package("React", "React", &[("Shared", "Shared")]);
+        fixture.add_package(
+            "ReactRoblox",
+            "ReactRoblox",
+            &[
+                ("React", "React"),
+                ("Scheduler", "Scheduler"),
+                ("Dash", "Dash"),
+            ],
+        );
+        fixture.add_package("Shared", "Shared", &[]);
+        fixture.add_package("Scheduler", "Scheduler", &[]);
+        fixture.add_package("Dash", "Dash", &[]);
+
+        let externals = HashMap::from([
+            ("React".to_string(), "Packages.React".to_string()),
+            (
+                "ReactRoblox".to_string(),
+                "Packages.ReactRoblox".to_string(),
+            ),
+        ]);
+        prune_unused_dependencies(&["Foundation".to_string()], &externals, &fixture.root).unwrap();
+
+        assert_eq!(fixture.index_contents(), set(&["Foundation", "Dash"]));
+
+        let react_linker =
+            fs::read_to_string(fixture.packages().join("_Index/Foundation/React.lua")).unwrap();
+        assert!(react_linker.contains("require(Packages.React)"));
     }
 
     #[test]
@@ -240,7 +368,8 @@ mod tests {
         fixture.add_package("Shared", "Shared", &[]);
         fixture.add_package("Unused", "Unused", &[]);
 
-        prune_unused_dependencies(&["Foundation".to_string()], &fixture.root).unwrap();
+        prune_unused_dependencies(&["Foundation".to_string()], &HashMap::new(), &fixture.root)
+            .unwrap();
 
         assert_eq!(
             fixture.index_contents(),
@@ -265,7 +394,8 @@ mod tests {
         fixture.add_package("Tokens-31ab8d40-4.0.11", "Tokens", &[]);
         fixture.add_package("Tokens-31ab8d40-1.0.0", "Tokens", &[]);
 
-        prune_unused_dependencies(&["Foundation".to_string()], &fixture.root).unwrap();
+        prune_unused_dependencies(&["Foundation".to_string()], &HashMap::new(), &fixture.root)
+            .unwrap();
 
         assert_eq!(
             fixture.index_contents(),
@@ -284,7 +414,7 @@ mod tests {
         fixture.add_package("A", "A", &[("B", "B")]);
         fixture.add_package("B", "B", &[("A", "A")]);
 
-        prune_unused_dependencies(&["A".to_string()], &fixture.root).unwrap();
+        prune_unused_dependencies(&["A".to_string()], &HashMap::new(), &fixture.root).unwrap();
 
         assert_eq!(fixture.index_contents(), set(&["A", "B"]));
     }
@@ -295,7 +425,8 @@ mod tests {
         fixture.add_root_linker("Foundation", "Foundation");
         fixture.add_package("Foundation", "Foundation", &[]);
 
-        let result = prune_unused_dependencies(&["Fondation".to_string()], &fixture.root);
+        let result =
+            prune_unused_dependencies(&["Fondation".to_string()], &HashMap::new(), &fixture.root);
 
         assert!(result.is_err());
         assert_eq!(fixture.index_contents(), set(&["Foundation"]));
@@ -307,7 +438,8 @@ mod tests {
         fixture.add_root_linker("Foundation", "Foundation");
         fixture.add_package("Foundation", "Foundation", &[("React", "React")]);
 
-        let result = prune_unused_dependencies(&["Foundation".to_string()], &fixture.root);
+        let result =
+            prune_unused_dependencies(&["Foundation".to_string()], &HashMap::new(), &fixture.root);
 
         assert!(result.is_err());
         assert_eq!(fixture.index_contents(), set(&["Foundation"]));
